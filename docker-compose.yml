@@ -1,0 +1,80 @@
+version: "3"
+services:
+  doc-management-app:
+    build:
+      context: ./docker/php
+      args:
+        - TZ=${TZ:-Asia/Tokyo}
+    ports:
+      - ${APP_PORT:-18000}:8000
+    volumes:
+      - ${PROJECT_PATH:-./src}:/work/${COMPOSE_PROJECT_NAME}:delegated
+      - ./docker/ash:/etc/profile.d
+      - ./logs:/var/log/php
+      - ./docker/php/php.ini:/usr/local/etc/php/php.ini
+      - ./docker/php/supervisord.conf:/etc/supervisord.conf
+      - ./docker/php/supervisord.d:/etc/supervisord.d
+      - ./docker/php/psysh:/root/.config/psysh
+    working_dir: /work/${COMPOSE_PROJECT_NAME}
+    environment:
+      - DB_CONNECTION=mysql
+      - DB_HOST=doc-management-db
+      - DB_DATABASE=${DB_DATABASE:-homestead}
+      - DB_USERNAME=${DB_USERNAME:-homestead}
+      - DB_PASSWORD=${DB_PASSWORD:-secret}
+      - TZ=${TZ:-Asia/Tokyo}
+      - CACHE_DRIVER=redis
+      - SESSION_DRIVER=redis
+      - QUEUE_DRIVER=redis
+      - REDIS_HOST=doc-management-redis
+    entrypoint: ["/usr/bin/supervisord", "-n", "-c",  "/etc/supervisord.conf"]
+
+  doc-management-nginx:
+    image: nginx:alpine
+    depends_on:
+      - doc-management-app
+    ports:
+      - ${WEB_PORT:-10080}:8085
+    volumes:
+      - ${PROJECT_PATH:-./src}:/work/${COMPOSE_PROJECT_NAME}:delegated
+      - ./logs:/var/log/nginx
+      - ./docker/nginx/default.conf.template:/etc/nginx/conf.d/default.conf.template
+    environment:
+      - TZ=${TZ:-Asia/Tokyo}
+      - COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME}
+    command: /bin/sh -c "envsubst '$$COMPOSE_PROJECT_NAME' < /etc/nginx/conf.d/default.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
+
+
+  doc-management-db:
+    image: mysql
+    volumes:
+      - db-store:/var/lib/mysql
+      - ./mysql-logs:/var/log/mysql
+      - ./docker/mysql/my.cnf:/etc/mysql/conf.d/my.cnf
+    environment:
+      - MYSQL_DATABASE=${DB_DATABASE:-homestead}
+      - MYSQL_USER=${DB_USERNAME:-homestead}
+      - MYSQL_PASSWORD=${DB_PASSWORD:-secret}
+      - MYSQL_ROOT_PASSWORD=${DB_PASSWORD:-secret}
+      - TZ=${TZ:-Asia/Tokyo}
+    ports:
+      - ${DB_PORT:-13308}:3306
+
+  doc-management-redis:
+    image: redis:alpine
+    volumes:
+      - redis-store:/data
+
+  doc-mailhog:
+    image: mailhog/mailhog
+    volumes:
+        - ./mailhog/maildir:/maildir
+    command: ["-storage=maildir", "-maildir-path=/maildir"]
+    ports:
+      - ${MAILHOG_PORT:-8025}:8025
+
+volumes:
+  db-store:
+    driver: local
+  redis-store:
+    driver: local
